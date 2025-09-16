@@ -1,4 +1,4 @@
-# EBC-ZIP
+# ZIP: Scalable Crowd Counting via Zero-Inflated Poisson Modeling
 
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/ebc-zip-improving-blockwise-crowd-counting/crowd-counting-on-shanghaitech-a)](https://paperswithcode.com/sota/crowd-counting-on-shanghaitech-a?p=ebc-zip-improving-blockwise-crowd-counting)
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/ebc-zip-improving-blockwise-crowd-counting/crowd-counting-on-shanghaitech-b)](https://paperswithcode.com/sota/crowd-counting-on-shanghaitech-b?p=ebc-zip-improving-blockwise-crowd-counting)
