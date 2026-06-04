@@ -23,22 +23,10 @@ from evaluate import evaluate
 parser = ArgumentParser(description="Train an EBC model.")
 
 # Parameters for model
-parser.add_argument("--model_name", type=str, default="CLIP_RN50", help="The model to train.")
 parser.add_argument("--block_size", type=int, default=16, choices=[7, 8, 14, 16, 28, 32], help="The block sizes for the model.")
 parser.add_argument("--clip_weight_name", type=str, default=None, help="The weight name for CLIP models.")
 parser.add_argument("--norm", type=str, default="none", choices=["none", "bn", "ln"], help="The normalization layer to use. 'none' means no normalization layer will be detected automatically, 'bn' means batch normalization, 'ln' means layer normalization.")
 parser.add_argument("--act", type=str, default="none", choices=["none", "relu", "gelu"], help="The activation function to use. 'none' means no activation function will be detected automatically, 'relu' means ReLU, 'gelu' means GELU.")
-
-parser.add_argument("--num_vpt", type=int, default=96, help="The number of visual prompt tokens.")
-parser.add_argument("--vpt_drop", type=float, default=0.0, help="The dropout rate for visual prompt tokens.")
-
-parser.add_argument("--adapter", action="store_true", help="Use adapter for the model. This will freeze the backbone and only train the adapter layers and newly added layers.")
-parser.add_argument("--adapter_reduction", type=int, default=4, help="The reduction ratio for the adapter layers. This will be used to reduce the number of parameters in the adapter layers.")
-
-parser.add_argument("--lora", action="store_true", help="Use LoRA for the model. This will freeze the backbone and only train the LoRA layers and newly added layers.")
-parser.add_argument("--lora_rank", type=int, default=16, help="The rank for the LoRA layers. This will be used to reduce the number of parameters in the LoRA layers.")
-parser.add_argument("--lora_alpha", type=float, default=32.0, help="The alpha for the LoRA layers. This will be used to scale the LoRA layers.")
-parser.add_argument("--lora_dropout", type=float, default=0.0, help="The dropout rate for the LoRA layers.")
 
 # Parameters for dataset
 parser.add_argument("--dataset", type=str, required=True, help="The dataset to train on.")
@@ -144,20 +132,10 @@ def run(local_rank: int, nprocs: int, args: ArgumentParser) -> None:
 
     model = get_model(
         model_info_path=os.path.join(args.ckpt_dir, "model_info.pth"),
-        model_name=args.model_name,
         block_size=args.block_size,
         bins=bins,
         bin_centers=bin_centers,
         zero_inflated=args.reg_loss == "zipnll" or args.aux_loss == "zipnll",
-        clip_weight_name=args.clip_weight_name,
-        num_vpt=args.num_vpt,
-        vpt_drop=args.vpt_drop,
-        adapter=args.adapter,
-        adapter_reduction=args.adapter_reduction,
-        lora=args.lora,
-        lora_rank=args.lora_rank,
-        lora_alpha=args.lora_alpha,
-        lora_dropout=args.lora_dropout,
         input_size=args.input_size,
         norm=args.norm,
         act=args.act,
@@ -320,104 +298,6 @@ def main():
     # Sliding window prediction will be used if args.sliding_window is True, or when the image size is larger than args.max_input_size
     args.stride = args.stride or args.input_size
 
-    assert args.model_name in ["ebc_p", "ebc_n", "ebc_t", "ebc_s", "ebc_b"], f"Expected model_name to be one of ['ebc_p', 'ebc_n', 'ebc_t', 'ebc_s', 'ebc_b'], got {args.model_name}."
-
-    if args.model_name == "ebc_p":  # pico
-        args.model_name = "mobilenetv4_conv_small_050"
-
-    elif args.model_name == "ebc_n":  # nano
-        args.model_name = "mobilenetv4_conv_small"
-
-    elif args.model_name == "ebc_t": # tiny
-        args.model_name = "mobilenetv4_conv_medium"
-
-    elif args.model_name == "ebc_s":
-        args.model_name = "CLIP_MobileCLIP_S1"
-        args.clip_weight_name = "datacompdr"
-
-    else:  # args.model_name == "ebc_b":
-        if args.dataset == "sha":
-            args.model_name = "CLIP_ViT_B_16"
-            args.clip_weight_name = "openai"
-            args.num_vpt = args.num_vpt or 96
-        elif args.dataset == "shb":
-            args.model_name = "CLIP_RN50x4"
-            args.clip_weight_name = "openai"
-        else:
-            args.model_name = "CLIP_convnext_base_w_320"
-            args.clip_weight_name = "laion_aesthetic_s13b_b82k_augreg"
-
-    if "CLIP_" not in args.model_name:
-        args.clip_weight_name = None
-
-    if args.adapter:
-        assert not args.lora, "Cannot use both adapter and LoRA at the same time."
-
-        args.num_vpt = None
-        args.vpt_drop = None
-        args.vpt_lr = None
-        args.vpt_weight_decay = None
-        args.lora_rank = None
-        args.lora_alpha = None
-        args.lora_dropout = None
-        args.lora_lr = None
-        args.lora_weight_decay = None
-        args.backbone_lr = None
-        args.backbone_weight_decay = None
-
-        assert args.adapter_lr > 0, f"Expected adapter_lr to be greater than 0, got {args.adapter_lr}"
-        assert args.adapter_weight_decay > 0, f"Expected adapter_weight_decay to be greater than 0, got {args.adapter_weight_decay}"
-        assert args.adapter_reduction > 0, f"Expected adapter_reduction to be greater than 0, got {args.adapter_reduction}"
-    
-    else:
-        args.adapter_reduction = None
-        args.adapter_lr = None
-        args.adapter_weight_decay = None
-    
-    if args.lora:
-        assert not args.adapter, "Cannot use both adapter and LoRA at the same time."
-
-        args.num_vpt = None
-        args.vpt_drop = None
-        args.vpt_lr = None
-        args.vpt_weight_decay = None
-        args.adapter_reduction = None
-        args.adapter_lr = None
-        args.adapter_weight_decay = None
-
-        assert args.lora_rank > 0, f"Expected lora_rank to be greater than 0, got {args.lora_rank}"
-        assert args.lora_alpha > 0, f"Expected lora_alpha to be greater than 0, got {args.lora_alpha}"
-        assert 0 <= args.lora_dropout < 1, f"Expected lora_dropout to be between 0 and 1, got {args.lora_dropout}"
-        assert args.lora_lr > 0, f"Expected lora_lr to be greater than 0, got {args.lora_lr}"
-        assert args.lora_weight_decay > 0, f"Expected lora_weight_decay to be greater than or equal to 0, got {args.lora_weight_decay}"
-    else:
-        args.lora_rank = None
-        args.lora_alpha = None
-        args.lora_dropout = None
-        args.lora_lr = None
-        args.lora_weight_decay = None
-    
-
-    if "vit" not in args.model_name.lower():
-        args.num_vpt = None
-        args.vpt_drop = None
-        args.vpt_lr = None
-        args.vpt_weight_decay = None
-    else:
-        args.backbone_lr = None
-        args.backbone_weight_decay = None
-        
-        if not (args.lora or args.adapter):  # Use VPT only if not using LoRA or adapter
-            assert args.num_vpt > 0, f"Expected num_vpt to be greater than 0, got {args.num_vpt}"
-            assert 0 <= args.vpt_drop < 1, f"Expected vpt_drop to be between 0 and 1, got {args.vpt_drop}"
-            assert args.vpt_lr > 0, f"Expected vpt_lr to be greater than 0, got {args.vpt_lr}"
-            assert args.vpt_weight_decay >= 0, f"Expected vpt_weight_decay to be greater than or equal to 0, got {args.vpt_weight_decay}"
-        else:
-            args.num_vpt = None
-            args.vpt_drop = None
-            args.vpt_lr = None
-            args.vpt_weight_decay = None
-
     if args.reg_loss != "dm" and args.aux_loss != "dm":
         args.numItermax = None
         args.regularization = None
@@ -460,15 +340,9 @@ def main():
         hyperparams_dict = json.dumps(hyperparams_dict, sort_keys=True)
         args.hash = hashlib.sha256(hyperparams_dict.encode("utf-8")).hexdigest()
 
-        if "CLIP_" in args.model_name:
-            ckpt_dir_name = f"{args.model_name}_{args.clip_weight_name}_"
-            if "ViT" in args.model_name:
-                ckpt_dir_name += f"{args.num_vpt}_{args.vpt_drop}_"
-        else:
-            ckpt_dir_name = f"{args.model_name}_{args.block_size}_"
+        ckpt_dir_name = f"zip_{args.block_size}_"
         ckpt_dir_name += f"{args.weight_cls}+{args.weight_reg}x{(args.reg_loss)}+{args.weight_aux}{(args.aux_loss)}_"
         ckpt_dir_name += f"{args.optimizer}_{args.scheduler}_{args.hash[:8]}"
-    
     else:
         ckpt_dir_name = args.ckpt_dir_name
 

@@ -5,9 +5,9 @@ from torchvision.transforms import ToTensor, Normalize, Compose
 import os
 from glob import glob
 from tqdm import tqdm
-# from PIL import Image
-from turbojpeg import TurboJPEG, TJPF_RGB
-jpeg_decoder = TurboJPEG()
+from PIL import Image
+# from turbojpeg import TurboJPEG, TJPF_RGB
+# jpeg_decoder = TurboJPEG()
 
 import numpy as np
 from typing import Optional, Callable, Union, Tuple
@@ -130,8 +130,8 @@ class Crowd(Dataset):
         label_path = os.path.join(self.root, self.split, "labels", label_name)
 
         with open(image_path, "rb") as f:
-            # image = Image.open(f).convert("RGB")
-            image = jpeg_decoder.decode(f.read(), pixel_format=TJPF_RGB)
+            image = Image.open(f).convert("RGB")
+            # image = jpeg_decoder.decode(f.read(), pixel_format=TJPF_RGB)
             image = self.to_tensor(image)
 
         with open(label_path, "rb") as f:
@@ -252,8 +252,8 @@ class NWPUTest(Dataset):
         image_path = os.path.join(self.root, "test", "images", image_name)
 
         with open(image_path, "rb") as f:
-            # image = Image.open(f).convert("RGB")
-            image = jpeg_decoder.decode(f.read(), pixel_format=TJPF_RGB)
+            image = Image.open(f).convert("RGB")
+            # image = jpeg_decoder.decode(f.read(), pixel_format=TJPF_RGB)
             image = self.to_tensor(image)
         
         label = torch.tensor([], dtype=torch.float)  # dummy label

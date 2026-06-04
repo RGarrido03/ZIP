@@ -181,25 +181,11 @@ def get_optimizer(
         else:
             backbone_params.append(param)
     
-    if args.num_vpt is not None:  # using VTP to tune ViT-based model
-        assert len(backbone_params) == 0, f"Expected backbone_params to be empty when using VTP, got {len(backbone_params)}"
-        assert len(adpater_params) == 0, f"Expected adpater_params to be empty when using VTP, got {len(adpater_params)}"
-        param_groups = [
-            {"params": vpt_params,"lr": args.vpt_lr, "weight_decay": args.vpt_weight_decay},
-            {"params": new_params, "lr": args.lr, "weight_decay": args.weight_decay},
-        ]
-    elif args.adapter:  # using adapter to tune CLIP-based model
-        assert len(backbone_params) == 0, f"Expected backbone_params to be empty when using adapter, got {len(backbone_params)}"
-        assert len(vpt_params) == 0, f"Expected vpt_params to be empty when using adapter, got {len(vpt_params)}"
-        param_groups = [
-            {"params": adpater_params, "lr": args.adapter_lr, "weight_decay": args.adapter_weight_decay},
-            {"params": new_params, "lr": args.lr, "weight_decay": args.weight_decay},
-        ]
-    else:
-        param_groups = [
-            {"params": new_params, "lr": args.lr, "weight_decay": args.weight_decay},
-            {"params": backbone_params, "lr": args.backbone_lr, "weight_decay": args.backbone_weight_decay}
-        ]
+
+    param_groups = [
+        {"params": new_params, "lr": args.lr, "weight_decay": args.weight_decay},
+        {"params": backbone_params, "lr": args.backbone_lr, "weight_decay": args.backbone_weight_decay}
+    ]
     if args.optimizer == "adam":
         optimizer = Adam(param_groups)
     elif args.optimizer == "adamw":
