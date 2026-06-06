@@ -480,18 +480,16 @@ class Mamba3VSSDNBackbone(nn.Module):
         H, W = x.shape[-2:]
         x = self.patch_embed(x)  # (B, L, C)
         H, W = self._compute_hw_after_stem(H, W)
-
         outs = []
         for i, blocks in enumerate(self.stages):
             for blk in blocks:
                 x = blk(x, H, W)
 
-            # Apply output norm and reshape to (B, C, H, W)
-            out = self.out_norms[i](x)
-            B, L, C = out.shape
-            out = out.view(B, H, W, C).permute(0, 3, 1, 2).contiguous()
-
             if i in self.out_indices:
+                # Apply output norm and reshape to (B, C, H, W)
+                out = self.out_norms[i](x)
+                B, L, C = out.shape
+                out = out.view(B, H, W, C).permute(0, 3, 1, 2).contiguous()
                 outs.append(out)
 
             if i < len(self.stages) - 1:
