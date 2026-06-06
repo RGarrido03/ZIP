@@ -1,6 +1,8 @@
 from functools import partial
+from pathlib import Path
 from typing import Optional
 
+import torch
 from torch import Tensor, nn
 
 from models.mamba3_vssd_ncssd import Mamba3VSSDNBackbone
@@ -92,7 +94,7 @@ refiner_in_channels = {
     "mobilenetv4_conv_small": 960,
     "mobilenetv4_conv_medium": 960,
     "mobilenetv4_conv_large": 960,
-    "mamba3_micro": 384,
+    "mamba3_micro": 224,
 }
 
 
@@ -128,7 +130,7 @@ refiner_out_channels = {
     "mobilenetv4_conv_small": 960,
     "mobilenetv4_conv_medium": 960,
     "mobilenetv4_conv_large": 960,
-    "mamba3_micro": 384,
+    "mamba3_micro": 224,
 }
 
 
@@ -184,7 +186,11 @@ class TIMMModel(nn.Module):
             f"Block size should be one of [8, 16, 32], but got {block_size}."
         )
         self.model_name = model_name
-        self.encoder = Mamba3VSSDNBackbone(arch="micro", out_indices=(3,))
+        self.encoder = Mamba3VSSDNBackbone(
+            embed_dims=[48, 64, 168, 224],
+            layers=[2, 2, 2, 2],
+            out_indices=(3,),
+        )
         print("Encoder channels:", self.encoder.out_channels)
         self.encoder_channels = self.encoder.out_channels[-1]
         self.encoder_reduction = 32  # vibes
