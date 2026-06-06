@@ -108,6 +108,7 @@ def train(
                 local_rank=rank,
                 nprocs=nprocs,
                 progress_bar=False,
+                wandb_run=wandb_run,
             )
             for k, v in batch_scores.items():
                 if k not in best_scores:

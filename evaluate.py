@@ -7,6 +7,20 @@ from torch.utils.data import DataLoader
 from typing import Tuple, Optional
 from tqdm import tqdm
 import numpy as np
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
+import wandb
+
+
+def _density_to_image(arr: np.ndarray, caption: str) -> wandb.Image:
+    """Convert a 2D density/lambda array to a jet-colormap RGB image for wandb."""
+    vmax = arr.max()
+    if vmax <= 0:
+        vmax = 1.0
+    norm = mcolors.Normalize(vmin=0, vmax=vmax)
+    colored = cm.jet(norm(arr))
+    rgb = (colored[:, :, :3] * 255).astype(np.uint8)
+    return wandb.Image(rgb, caption=caption)
 
 from utils import sliding_window_predict, barrier, calculate_errors
 
@@ -24,6 +38,8 @@ def evaluate(
     local_rank: int = 0,
     nprocs: int = 1,
     progress_bar: bool = True,
+    wandb_run = None,
+    num_log_samples: int = 4,
 ) -> Tuple[Tensor, Tensor]:
     ddp = nprocs > 1
     model = model.to(device)
@@ -79,6 +95,67 @@ def evaluate(
 
     else:
         pred_counts, gt_counts = np.array(pred_counts), np.array(gt_counts)
+
+    # Log sample predictions to wandb
+    if wandb_run is not None and local_rank == 0:
+        model.train()  # temporarily switch to train mode to get intermediate outputs
+        logged = 0
+        for image, gt_points, _ in data_loader:
+            if logged >= num_log_samples:
+                break
+            image = image.to(device)
+            image_height, image_width = image.shape[-2:]
+
+            # Resize if needed (same logic as main loop)
+            aspect_ratio = image_width / image_height
+            if image_height < window_size:
+                new_height = window_size
+                new_width = int(new_height * aspect_ratio)
+                image = F.interpolate(image, size=(new_height, new_width), mode="bicubic", align_corners=False)
+                image_height, image_width = new_height, new_width
+            if image_width < window_size:
+                new_width = window_size
+                new_height = int(new_width / aspect_ratio)
+                image = F.interpolate(image, size=(new_height, new_width), mode="bicubic", align_corners=False)
+                image_height, image_width = new_height, new_width
+            # Resize down if image exceeds max_input_size to avoid OOM
+            if image_height * image_width > max_input_size ** 2:
+                scale = max_input_size / max(image_height, image_width)
+                new_height = int(image_height * scale)
+                new_width = int(image_width * scale)
+                image = F.interpolate(image, size=(new_height, new_width), mode="bicubic", align_corners=False)
+                image_height, image_width = new_height, new_width
+
+            with torch.no_grad(), autocast(device_type="cuda", enabled=amp):
+                outputs = model(image)
+
+            if isinstance(outputs, tuple) and len(outputs) >= 4:
+                # zero_inflated model returns (logit_pi, logit_maps, lambda_maps, den_maps)
+                _, _, lambda_map, den_map = outputs[:4]
+                lambda_map = F.interpolate(lambda_map, size=(image_height, image_width), mode="bilinear", align_corners=False)
+            elif isinstance(outputs, tuple) and len(outputs) == 2:
+                # non-zero_inflated model returns (logit_maps, den_maps)
+                _, den_map = outputs
+                lambda_map = None
+            else:
+                # eval-mode fallback: model returned just den_map
+                den_map = outputs if not isinstance(outputs, tuple) else outputs[0]
+                lambda_map = None
+
+            den_map = F.interpolate(den_map, size=(image_height, image_width), mode="bilinear", align_corners=False)
+
+            for b in range(image.size(0)):
+                if logged >= num_log_samples:
+                    break
+                den_img = den_map[b].squeeze().cpu().numpy()
+                wandb_run.log({f"eval/pred_density_{logged}": _density_to_image(den_img, f"sample {logged} - Pred Density")})
+                if lambda_map is not None:
+                    lam_img = lambda_map[b].squeeze().cpu().numpy()
+                    wandb_run.log({f"eval/lambda_{logged}": _density_to_image(lam_img, f"sample {logged} - Lambda")})
+                logged += 1
+
+        model.eval()  # restore eval mode
+
 
     torch.cuda.empty_cache()
     return calculate_errors(pred_counts, gt_counts)

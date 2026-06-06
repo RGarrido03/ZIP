@@ -289,7 +289,8 @@ def run(local_rank: int, nprocs: int, args: ArgumentParser) -> None:
                     device=device,
                     amp=args.amp,
                     local_rank=local_rank,
-                    nprocs=nprocs
+                    nprocs=nprocs,
+                    wandb_run=wandb_run,
                 )
 
                 state_dict = deepcopy(model.module.state_dict() if ddp else model.state_dict())
