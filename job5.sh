@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --partition=gpuPartition
 #SBATCH --nodes=1
-#SBATCH --nodelist=atari         
+#SBATCH --nodelist=sega         
 #SBATCH --ntasks=1
-#SBATCH --gpus-per-task=2
-#SBATCH --cpus-per-task=4
+#SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-task=2
 #SBATCH --job-name=vssd_nc_cls_imagenet1k_ddp
 #SBATCH --output=runs/zip_%j.out
 #SBATCH --error=runs/zip_%j.err
@@ -22,7 +22,7 @@ export WANDB_API_KEY='wandb_v1_9e0i3YhnLyxoXQ7ymQVRjTVlVRS_bDoVOLCwwSGmHGlvv99ac
 export WANDB_PROJECT=cls_vssd_nc
 
 # export CUDA_VISIBLE_DEVICES=0
-# torchrun --nproc_per_node=2
+
 uv run trainer.py \
     --dataset sha --input_size 224 --block_size 16 --sliding_window --warmup_lr 1e-3 \
-    --amp --num_workers 4 2>&1
+    --num_workers 4 --wandb --eval_freq 1 --eval_start 0  2>&1

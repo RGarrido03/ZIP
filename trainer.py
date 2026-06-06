@@ -1,24 +1,42 @@
-import torch
-from torch import nn
-import torch.multiprocessing as mp
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.amp import GradScaler
-import numpy as np
-from copy import deepcopy
+import hashlib
+import json
+import os
 from argparse import ArgumentParser
-import os, json, hashlib, yaml
+from copy import deepcopy
+
+import numpy as np
+import torch
+import torch.multiprocessing as mp
+import wandb
+import yaml
+from torch import nn
+from torch.amp import GradScaler
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 current_dir = os.path.abspath(os.path.dirname(__file__))
 
 from datasets import standardize_dataset_name
-from models import get_model
-
-from utils import setup, cleanup, init_seeds, get_logger, get_config, barrier
-from utils import get_dataloader, get_loss_fn, get_optimizer, load_checkpoint, save_checkpoint
-from utils import get_writer, update_train_result, update_eval_result, log, calc_bin_center
-from train import train
 from evaluate import evaluate
-
+from models import get_model
+from train import train
+from utils import (
+    barrier,
+    calc_bin_center,
+    cleanup,
+    get_config,
+    get_dataloader,
+    get_logger,
+    get_loss_fn,
+    get_optimizer,
+    get_writer,
+    init_seeds,
+    load_checkpoint,
+    log,
+    save_checkpoint,
+    setup,
+    update_eval_result,
+    update_train_result,
+)
 
 parser = ArgumentParser(description="Train an EBC model.")
 
@@ -95,7 +113,7 @@ parser.add_argument("--T_max", type=int, default=20, help="The maximum number of
 # Parameters for training
 parser.add_argument("--ckpt_dir_name", type=str, default=None, help="The name of the checkpoint folder.")
 parser.add_argument("--total_epochs", type=int, default=1300, help="Number of epochs to train.")
-parser.add_argument("--eval_start", type=int, default=None, help="Start to evaluate after this number of epochs.")
+parser.add_argument("--eval_start", type=int, default=0, help="Start to evaluate after this number of epochs.")
 parser.add_argument("--eval_freq", type=float, default=None, help="Evaluate every this number of epochs. If < 1, evaluate every this fraction of an epoch.")
 parser.add_argument("--save_freq", type=int, default=50, help="Save checkpoint every this number of epochs. Could help reduce I/O.")
 parser.add_argument("--save_best_k", type=int, default=5, help="Save the best k checkpoints.")
@@ -103,6 +121,12 @@ parser.add_argument("--amp", action="store_true", help="Use automatic mixed prec
 parser.add_argument("--num_workers", type=int, default=os.cpu_count(), help="Number of workers for data loading.")
 parser.add_argument("--local_rank", type=int, default=-1, help="Local rank for distributed training.")
 parser.add_argument("--seed", type=int, default=42, help="Random seed for initialization.")
+
+# Parameters for wandb
+parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging.")
+parser.add_argument("--wandb_project", type=str, default="zip-ebc", help="Weights & Biases project name.")
+parser.add_argument("--wandb_entity", type=str, default=None, help="Weights & Biases entity (team/user).")
+parser.add_argument("--wandb_name", type=str, default=None, help="Weights & Biases run name. Defaults to the checkpoint dir name.")
 
 
 def run(local_rank: int, nprocs: int, args: ArgumentParser) -> None:
@@ -159,13 +183,29 @@ def run(local_rank: int, nprocs: int, args: ArgumentParser) -> None:
         logger.info(get_config(vars(args), mute=False))
         logger.info(f"Total parameters: {total_params:,}\nTrainable parameters: {total_trainable_params:,}\nNon-trainable parameters: {total_nontrainable_params:,}\n")
 
+        wandb_run = None
+        if args.wandb:
+            wandb_run = wandb.init(
+                project=args.wandb_project,
+                entity=args.wandb_entity,
+                name=args.wandb_name or os.path.basename(args.ckpt_dir),
+                config=vars(args),
+                dir=args.ckpt_dir,
+            )
+    else:
+        writer = None
+        logger = None
+        wandb_run = None
     train_loader, sampler = get_dataloader(args, split="train")
     val_loader = get_dataloader(args, split="val")
 
     for epoch in range(start_epoch, args.total_epochs + 1):  # start from 1
         if local_rank == 0:
-            message = f"\tlr: {optimizer.param_groups[0]['lr']:.3e}"
+            lr = optimizer.param_groups[0]['lr']
+            message = f"\tlr: {lr:.3e}"
             log(logger, epoch, args.total_epochs, message=message)
+            if wandb_run is not None:
+                wandb_run.log({"train/lr": lr})
 
         if sampler is not None:
             sampler.set_epoch(epoch)
@@ -190,6 +230,7 @@ def run(local_rank: int, nprocs: int, args: ArgumentParser) -> None:
                     window_size=args.input_size,
                     stride=args.stride,
                     max_num_windows=args.max_num_windows,
+                    wandb_run=wandb_run,
                 )
                 scheduler.step()
                 barrier(ddp)
@@ -204,6 +245,7 @@ def run(local_rank: int, nprocs: int, args: ArgumentParser) -> None:
                     device=device,
                     rank=local_rank,
                     nprocs=nprocs,
+                    wandb_run=wandb_run,
                 )
                 scheduler.step()
                 barrier(ddp)
@@ -218,11 +260,13 @@ def run(local_rank: int, nprocs: int, args: ArgumentParser) -> None:
                 device=device,
                 rank=local_rank,
                 nprocs=nprocs,
+                wandb_run=wandb_run,
             )
 
             scheduler.step()
             barrier(ddp)
 
+            print(f"Evaluating at epoch {epoch} with args eval_freq {args.eval_freq} and eval_start {args.eval_start}. Calculated eval_model: {(epoch >= args.eval_start) and ((epoch - args.eval_start) % args.eval_freq == 0)}.")
             eval_model = (epoch >= args.eval_start) and ((epoch - args.eval_start) % args.eval_freq == 0)
             if eval_model:
                 curr_val_scores = evaluate(
@@ -243,7 +287,7 @@ def run(local_rank: int, nprocs: int, args: ArgumentParser) -> None:
                 curr_weights = {k: state_dict for k in curr_val_scores.keys()}  # copy the state_dict                    
 
         if local_rank == 0:
-            update_train_result(epoch, loss_info, writer)
+            update_train_result(epoch, loss_info, writer, wandb_run=wandb_run)
             log(logger, None, None, loss_info=loss_info, message="\n" * 2 if not eval_model else None)
 
             if eval_model:
@@ -255,6 +299,7 @@ def run(local_rank: int, nprocs: int, args: ArgumentParser) -> None:
                     model_info={"config": model.module.config if ddp else model.config, "weights": curr_weights},
                     writer=writer,
                     ckpt_dir=args.ckpt_dir,
+                    wandb_run=wandb_run,
                 )
         
                 log(logger, None, None, None, curr_val_scores, best_val_scores, message="\n" * 3)
@@ -275,6 +320,8 @@ def run(local_rank: int, nprocs: int, args: ArgumentParser) -> None:
         barrier(ddp)
 
     if local_rank == 0:
+        if wandb_run is not None:
+            wandb_run.finish()
         writer.close()
         print("Training completed. Best scores:")
         for k in best_val_scores.keys():

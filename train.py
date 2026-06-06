@@ -24,6 +24,7 @@ def train(
     **kwargs,
 ) -> Tuple[nn.Module, Optimizer, GradScaler, Dict[str, float]]:
     info = None
+    wandb_run = kwargs.pop("wandb_run", None)
     data_iter = tqdm(data_loader) if rank == 0 else data_loader
     ddp = nprocs > 1
 
@@ -90,7 +91,9 @@ def train(
         total_loss_info = {k: reduce_mean(v.detach(), nprocs).item() if ddp else v.detach().item() for k, v in total_loss_info.items()}
         info = update_loss_info(info, total_loss_info)
         barrier(ddp)
-    
+
+        if wandb_run is not None and rank == 0:
+            wandb_run.log({"train/loss": total_loss_info.get("total_loss", total_loss.item() if ddp else total_loss.item()), **{f"train/{k}": v for k, v in total_loss_info.items()}})
         if eval_within_epoch and ((batch_idx + 1) % eval_freq == 0 or batch_idx == len(data_loader) - 1):
             batch_scores = evaluate(
                 model=model,

@@ -1,5 +1,6 @@
 import torch
 from torch import Tensor
+import wandb
 from tensorboardX import SummaryWriter
 import logging
 import os
@@ -64,10 +65,11 @@ def print_eval_result(curr_scores: Dict[str, float], best_scores: Dict[str, floa
     print(info)
 
 
-def update_train_result(epoch: int, loss_info: Dict[str, float], writer: SummaryWriter) -> None:
+def update_train_result(epoch: int, loss_info: Dict[str, float], writer: SummaryWriter, wandb_run=None) -> None:
     for k, v in loss_info.items():
         writer.add_scalar(f"train/{k}", v, epoch)
-
+    if wandb_run is not None:
+        wandb_run.log({f"train/{k}": loss_info[k] for k in loss_info})
 
 def update_eval_result(
     epoch: int,
@@ -77,6 +79,7 @@ def update_eval_result(
     model_info: Dict[str, Tensor],
     writer: SummaryWriter,
     ckpt_dir: str,
+    wandb_run=None,
 ) -> Tuple[Dict[str, List[float]], Dict[str, float]]:
     os.makedirs(ckpt_dir, exist_ok=True)
     model_config = model_info["config"]
@@ -107,6 +110,9 @@ def update_eval_result(
 
             # Save the best checkpoint
             torch.save({"config": model_config, "weights": state_dict[k]}, os.path.join(ckpt_dir, f"best_{k}_{loc}.pth"))    
+
+    if wandb_run is not None:
+        wandb_run.log({f"val/{k}": v for k, v in curr_scores.items()})
 
     return hist_scores, best_scores
 
