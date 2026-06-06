@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 from torch import Tensor, nn
 
@@ -59,6 +61,9 @@ class EBC(nn.Module):
             "mamba3_micro", block_size=block_size, norm=norm, act=act
         )
         self._build_head()
+
+    def restore_backbone_checkpoint(self, path: Path) -> None:
+        self.backbone.restore_checkpoint(path)
 
     def _build_head(self) -> None:
         channels = 192  # TODO: Check if this is correct

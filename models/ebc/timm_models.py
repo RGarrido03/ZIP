@@ -356,6 +356,19 @@ class TIMMModel(nn.Module):
         x = self.decode(x)
         return x
 
+    def restore_checkpoint(self, path: Path) -> None:
+        ckpt = torch.load(path, map_location="cpu")
+        weights = ckpt["model"]
+        # Strip "backbone." prefix; rename ut_norms -> out_norms (older checkpoint naming)
+        backbone_weights = {}
+        for key, value in weights.items():
+            if not key.startswith("backbone."):
+                continue
+            key = key[len("backbone."):]
+            if key.startswith("ut_norms."):
+                key = "out_norms." + key[len("ut_norms."):]
+            backbone_weights[key] = value
+        self.encoder.load_state_dict(backbone_weights, strict=True)
 
 def _timm_model(
     model_name: str,

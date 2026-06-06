@@ -112,6 +112,7 @@ parser.add_argument("--T_max", type=int, default=20, help="The maximum number of
 
 # Parameters for training
 parser.add_argument("--ckpt_dir_name", type=str, default=None, help="The name of the checkpoint folder.")
+parser.add_argument("--ckpt_backbone", type=str, default=None, help="The name of the checkpoint for the backbone (.pth).")
 parser.add_argument("--total_epochs", type=int, default=1300, help="Number of epochs to train.")
 parser.add_argument("--eval_start", type=int, default=0, help="Start to evaluate after this number of epochs.")
 parser.add_argument("--eval_freq", type=float, default=None, help="Evaluate every this number of epochs. If < 1, evaluate every this fraction of an epoch.")
@@ -175,6 +176,14 @@ def run(local_rank: int, nprocs: int, args: ArgumentParser) -> None:
     optimizer, scheduler = get_optimizer(args, model)
 
     model, optimizer, scheduler, grad_scaler, start_epoch, loss_info, hist_val_scores, best_val_scores = load_checkpoint(args, model, optimizer, scheduler, grad_scaler)
+
+    if args.ckpt_backbone is not None:
+        if not os.path.isfile(args.ckpt_backbone):
+            raise FileNotFoundError(f"Backbone checkpoint file not found at {args.ckpt_backbone}")
+        print(f"Loading backbone checkpoint from {args.ckpt_backbone}...")
+        model.restore_backbone_checkpoint(args.ckpt_backbone)
+        print("Backbone checkpoint loaded successfully.")
+
     model = DDP(nn.SyncBatchNorm.convert_sync_batchnorm(model), device_ids=[local_rank], output_device=local_rank) if ddp else model
 
     if local_rank == 0:
