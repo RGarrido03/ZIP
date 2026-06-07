@@ -12,15 +12,28 @@ import matplotlib.colors as mcolors
 import wandb
 
 
-def _density_to_image(arr: np.ndarray, caption: str) -> wandb.Image:
-    """Convert a 2D density/lambda array to a jet-colormap RGB image for wandb."""
+_MEAN = np.array([0.48145466, 0.4578275, 0.40821073])
+_STD = np.array([0.26862954, 0.26130258, 0.27577711])
+
+
+def _density_to_image(arr: np.ndarray, caption: str, background: np.ndarray | None = None, alpha: float = 0.5) -> wandb.Image:
+    """Convert a 2D density/lambda array to a jet-colormap RGB image for wandb.
+
+    If *background* (HWC uint8) is provided, the heatmap is alpha-blended on top
+    of it so the original scene is visible behind the model output.
+    """
     vmax = arr.max()
     if vmax <= 0:
         vmax = 1.0
     norm = mcolors.Normalize(vmin=0, vmax=vmax)
     colored = cm.jet(norm(arr))
-    rgb = (colored[:, :, :3] * 255).astype(np.uint8)
-    return wandb.Image(rgb, caption=caption)
+    heatmap = (colored[:, :, :3] * 255).astype(np.uint8)
+
+    if background is not None:
+        blended = (heatmap * alpha + background * (1 - alpha)).astype(np.uint8)
+        return wandb.Image(blended, caption=caption)
+
+    return wandb.Image(heatmap, caption=caption)
 
 from utils import sliding_window_predict, barrier, calculate_errors
 
@@ -147,11 +160,17 @@ def evaluate(
             for b in range(image.size(0)):
                 if logged >= num_log_samples:
                     break
+                # Denormalize the original image for visual overlay
+                bg = image[b].cpu().numpy()
+                bg = bg * _STD[:, None, None] + _MEAN[:, None, None]
+                bg = np.clip(bg, 0, 1)
+                bg = (bg.transpose(1, 2, 0) * 255).astype(np.uint8)
+
                 den_img = den_map[b].squeeze().cpu().numpy()
-                wandb_run.log({f"eval/pred_density_{logged}": _density_to_image(den_img, f"sample {logged} - Pred Density")})
+                wandb_run.log({f"eval/pred_density_{logged}": _density_to_image(den_img, f"sample {logged} - Pred Density", background=bg)})
                 if lambda_map is not None:
                     lam_img = lambda_map[b].squeeze().cpu().numpy()
-                    wandb_run.log({f"eval/lambda_{logged}": _density_to_image(lam_img, f"sample {logged} - Lambda")})
+                    wandb_run.log({f"eval/lambda_{logged}": _density_to_image(lam_img, f"sample {logged} - Lambda", background=bg)})
                 logged += 1
 
         model.eval()  # restore eval mode
