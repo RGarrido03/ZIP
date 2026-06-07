@@ -41,6 +41,7 @@ from utils import (
 parser = ArgumentParser(description="Train an EBC model.")
 
 # Parameters for model
+parser.add_argument("--model_name", type=str, default="mamba3_micro", help="The name of the model to use.")
 parser.add_argument("--block_size", type=int, default=16, choices=[7, 8, 14, 16, 28, 32], help="The block sizes for the model.")
 parser.add_argument("--clip_weight_name", type=str, default=None, help="The weight name for CLIP models.")
 parser.add_argument("--norm", type=str, default="none", choices=["none", "bn", "ln"], help="The normalization layer to use. 'none' means no normalization layer will be detected automatically, 'bn' means batch normalization, 'ln' means layer normalization.")
@@ -156,6 +157,7 @@ def run(local_rank: int, nprocs: int, args: ArgumentParser) -> None:
     args.bin_counts = bin_counts
 
     model = get_model(
+        model_name=args.model_name,
         model_info_path=os.path.join(args.ckpt_dir, "model_info.pth"),
         block_size=args.block_size,
         bins=bins,
@@ -397,7 +399,7 @@ def main():
         hyperparams_dict = json.dumps(hyperparams_dict, sort_keys=True)
         args.hash = hashlib.sha256(hyperparams_dict.encode("utf-8")).hexdigest()
 
-        ckpt_dir_name = f"zip_{args.block_size}_"
+        ckpt_dir_name = f"zip_{args.model_name}_{args.block_size}_"
         ckpt_dir_name += f"{args.weight_cls}+{args.weight_reg}x{(args.reg_loss)}+{args.weight_aux}{(args.aux_loss)}_"
         ckpt_dir_name += f"{args.optimizer}_{args.scheduler}_{args.hash[:8]}"
     else:

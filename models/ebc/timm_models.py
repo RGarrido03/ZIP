@@ -32,6 +32,7 @@ regular_models = [
     "convnext_small",
     "convnext_base",
     "mobilenetv4_conv_large",
+    "mamba3_tiny",
 ]
 
 heavy_models = [
@@ -95,6 +96,7 @@ refiner_in_channels = {
     "mobilenetv4_conv_medium": 960,
     "mobilenetv4_conv_large": 960,
     "mamba3_micro": 224,
+    "mamba3_tiny": 512,
 }
 
 
@@ -131,6 +133,7 @@ refiner_out_channels = {
     "mobilenetv4_conv_medium": 960,
     "mobilenetv4_conv_large": 960,
     "mamba3_micro": 224,
+    "mamba3_tiny": 512,
 }
 
 
@@ -167,6 +170,7 @@ groups = {
     "mobilenetv4_conv_medium": None,
     "mobilenetv4_conv_large": 1,
     "mamba3_micro": 1,
+    "mamba3_tiny": 1,
 }
 
 
@@ -187,8 +191,7 @@ class TIMMModel(nn.Module):
         )
         self.model_name = model_name
         self.encoder = Mamba3VSSDNBackbone(
-            embed_dims=[48, 64, 168, 224],
-            layers=[2, 2, 2, 2],
+            arch=model_name.lstrip("mamba3_"),
             out_indices=(3,),
         )
         print("Encoder channels:", self.encoder.out_channels)

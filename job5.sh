@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --partition=gpuPartition
 #SBATCH --nodes=1
-#SBATCH --nodelist=xbox         
+#SBATCH --nodelist=atari         
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-task=1
-#SBATCH --cpus-per-task=2
+#SBATCH --cpus-per-task=5
 #SBATCH --job-name=zip
 #SBATCH --output=runs/zip_%j.out
 #SBATCH --error=runs/zip_%j.err
@@ -22,7 +22,12 @@ export WANDB_PROJECT=cls_vssd_nc
 
 # export CUDA_VISIBLE_DEVICES=0
 
+# python trainer.py \
+#     --model_name mamba3_micro --dataset sha --input_size 224 --block_size 16 --sliding_window --warmup_lr 1e-3 --total_epochs 10000 \
+#     --batch_size 128 --num_workers 4 --wandb --eval_freq 50 --eval_start 0 \
+#     --ckpt_backbone "/slurm_shared/home/andrepedroribeiro@av.it.pt/mamba3-caa/work_dirs/cls_vssd_nc_micro_ddp/last.pth" 2>&1
+
 python trainer.py \
-    --dataset sha --input_size 224 --block_size 16 --sliding_window --warmup_lr 1e-3 \
-    --num_workers 4 --wandb --eval_freq 50 --eval_start 0 \
-    --ckpt_backbone "/slurm_shared/home/andrepedroribeiro@av.it.pt/mamba3-caa/work_dirs/cls_vssd_nc_micro_ddp/last.pth" 2>&1
+    --model_name mamba3_tiny --dataset sha --input_size 224 --block_size 16 --sliding_window --warmup_lr 1e-3 --total_epochs 10000 \
+    --batch_size 32 --num_workers 4 --wandb --eval_freq 50 --eval_start 0 \
+    --ckpt_backbone "/slurm_shared/home/andrepedroribeiro@av.it.pt/mamba3-caa/work_dirs/cls_vssd_nc_tiny_ddp/last.pth" 2>&1

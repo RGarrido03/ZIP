@@ -6,6 +6,7 @@ from .ebc import _ebc, EBC
 
 
 def get_model(
+    model_name: str,
     model_info_path: str,
     block_size: Optional[int] = None,
     bins: Optional[List[Tuple[float, float]]] = None,
@@ -36,6 +37,7 @@ def get_model(
         weights = None
 
     model = _ebc(
+        model_name=model_name,
         block_size=block_size,
         bins=bins,
         bin_centers=bin_centers,

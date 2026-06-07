@@ -4,7 +4,6 @@ import torch
 from torch import Tensor, nn
 
 from models.ebc.timm_models import TIMMModel
-from models.mamba3_vssd_ncssd import Mamba3VSSDNBackbone
 
 from ..utils import conv1x1
 
@@ -12,6 +11,7 @@ from ..utils import conv1x1
 class EBC(nn.Module):
     def __init__(
         self,
+        model_name: str,
         block_size: int,
         bins: list[tuple[float, float]],
         bin_centers: list[float],
@@ -58,7 +58,7 @@ class EBC(nn.Module):
         self.act = act
 
         self.backbone = TIMMModel(
-            "mamba3_micro", block_size=block_size, norm=norm, act=act
+            model_name, block_size=block_size, norm=norm, act=act
         )
         self._build_head()
 
@@ -66,7 +66,7 @@ class EBC(nn.Module):
         self.backbone.restore_checkpoint(path)
 
     def _build_head(self) -> None:
-        channels = 224
+        channels = self.backbone.encoder.out_channels[-1] // 2
         if self.zero_inflated:
             self.bin_head = conv1x1(
                 in_channels=channels,
@@ -115,6 +115,7 @@ class EBC(nn.Module):
 
 
 def _ebc(
+    model_name: str,
     block_size: int,
     bins: list[tuple[float, float]],
     bin_centers: list[float],
@@ -125,6 +126,7 @@ def _ebc(
     act: str = "none",
 ) -> EBC:
     return EBC(
+        model_name=model_name,
         block_size=block_size,
         bins=bins,
         bin_centers=bin_centers,
