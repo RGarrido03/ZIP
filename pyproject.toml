@@ -22,5 +22,8 @@ dependencies = [
     "wandb>=0.19.0",
 ]
 
+[project.optional-dependencies]
+test = ["pytest>=9"]
+
 [tool.uv.extra-build-dependencies]
 mamba-ssm = ["torch"]

@@ -66,7 +66,7 @@ class EBC(nn.Module):
         self.backbone.restore_checkpoint(path)
 
     def _build_head(self) -> None:
-        channels = self.backbone.encoder.out_channels[-1] // 2
+        channels = self.backbone.encoder.out_channels[-1]
         if self.zero_inflated:
             self.bin_head = conv1x1(
                 in_channels=channels,

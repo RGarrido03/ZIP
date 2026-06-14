@@ -3,6 +3,14 @@ import torch
 from typing import List, Tuple, Optional
 
 from .ebc import _ebc, EBC
+from .queue_wait import (
+    AdaptiveQueueROI,
+    QueueWaitEstimator,
+    SumPool2d,
+    estimate_waiting_time,
+    extract_irregular_queue,
+    extract_queue_region,
+)
 
 
 def get_model(
@@ -70,4 +78,13 @@ def get_model(
     return model
 
 
-__all__ = ["get_model"]
+
+__all__ = [
+    "get_model",
+    "AdaptiveQueueROI",
+    "QueueWaitEstimator",
+    "SumPool2d",
+    "estimate_waiting_time",
+    "extract_irregular_queue",
+    "extract_queue_region",
+]
