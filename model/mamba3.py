@@ -369,8 +369,17 @@ class Mamba3(nn.Module):
         self.num_bc_heads = ngroups   # B and C are shared across this many heads
 
         self.d_inner = int(expand * d_model)
-        assert self.d_inner % headdim == 0, "d_inner must be divisible by headdim"
-        self.nheads = self.d_inner // headdim   # H: total number of SSM heads
+        # Auto-adjust headdim to the largest divisor of d_inner not exceeding
+        # the requested headdim (handles configs where d_inner isn't divisible
+        # by the fixed headdim, e.g. embed_dims=[32, 40, …] for vision backbones).
+        if self.d_inner % headdim != 0:
+            for hd in range(min(headdim, self.d_inner), 0, -1):
+                if self.d_inner % hd == 0:
+                    self.headdim = hd
+                    break
+        else:
+            self.headdim = headdim
+        self.nheads = self.d_inner // self.headdim   # H: total number of SSM heads
 
         # ── RoPE / angle dimensions ─────────────────────────────────────────
         # rope_fraction controls what fraction of d_state dimensions use rotation.
@@ -473,10 +482,13 @@ class Mamba3(nn.Module):
     # Forward pass
     # ─────────────────────────────────────────────────────────────────────────
 
-    def forward(self, u: torch.Tensor) -> torch.Tensor:
+    def forward(self, u: torch.Tensor, external_angles: torch.Tensor | None = None) -> torch.Tensor:
         """
         Args:
             u: (batch, seq_len, d_model)  — input token embeddings
+            external_angles: (B, L, H, S) optional pre-computed 2D spatial RoPE
+                angles for vision tasks. When provided, overrides the 1D
+                content-dependent angles from in_proj.
 
         Returns:
             out: (batch, seq_len, d_model)  — same shape as u
@@ -528,84 +540,65 @@ class Mamba3(nn.Module):
         # trap=1: full trapezoidal blend (averages current and previous B*x)
         trap = torch.sigmoid(trap_raw.float())   # (B, L, H), in [0, 1]
 
+        # NCSSD expects (B, H, L) layout for ADT and trap
+        ADT = rearrange(ADT, "b l h -> b h l")
+        trap = rearrange(trap, "b l h -> b h l")
+
         # ── Step 5: Apply RMS norm to B and C, expand groups → heads, add bias ──
         # Normalizing B and C prevents the projections from growing unboundedly.
         # B_raw shape: (B, L, R, G, D)  where G = ngroups
         B_normed = self.B_norm(B_raw.float())   # (B, L, R, G, D)
         C_normed = self.C_norm(C_raw.float())   # (B, L, R, G, D)
 
-        # Expand from G groups to H heads — requires G == 1 (each group shared
-        # across all heads) or G == nheads (one group per head).
-        B_exp = B_normed.expand(-1, -1, -1, self.nheads, -1)  # (B, L, R, H, D)
-        C_exp = C_normed.expand(-1, -1, -1, self.nheads, -1)  # (B, L, R, H, D)
+        # Expand from G groups to H heads — required for internal RoPE.
+        # For the external_angles (vision) path, NCSSD handles expansion and
+        # bias internally, so we pass the raw (B, L, R, G, D) tensors.
+        if external_angles is None:
+            B_exp = B_normed.expand(-1, -1, -1, self.nheads, -1)  # (B, L, R, H, D)
+            C_exp = C_normed.expand(-1, -1, -1, self.nheads, -1)  # (B, L, R, H, D)
 
-        # B_bias / C_bias shape: (H, R, D) → rearrange to (R, H, D) for broadcast
-        B_bias_t = rearrange(self.B_bias, "h r d -> r h d")  # (R, H, D)
-        C_bias_t = rearrange(self.C_bias, "h r d -> r h d")  # (R, H, D)
-        B_exp = B_exp + B_bias_t  # (B, L, R, H, D) + (R, H, D) broadcasts correctly
-        C_exp = C_exp + C_bias_t  # (B, L, R, H, D)
+            # B_bias / C_bias shape: (H, R, D) → rearrange to (R, H, D) for broadcast
+            B_bias_t = rearrange(self.B_bias, "h r d -> r h d")  # (R, H, D)
+            C_bias_t = rearrange(self.C_bias, "h r d -> r h d")  # (R, H, D)
+            B_exp = B_exp + B_bias_t  # (B, L, R, H, D)
+            C_exp = C_exp + C_bias_t  # (B, L, R, H, D)
 
-        # ── Step 6: Apply RoPE rotation to B and C ───────────────────────────
-        # Cumulative angle = sum_{s≤t}(dt_s * angle_s), independently per head.
-        # angle_raw: (B, L, num_rope_angles) — learned rotation rate per step
-        # DT:        (B, L, H)              — per-head time step
-        # angle_increments: (B, L, H, num_rope_angles) — dt-scaled angle per head per step
-        angle_increments = (
-            angle_raw.float().unsqueeze(2)   # (B, L, 1, S)
-            * DT.float().unsqueeze(-1)       # (B, L, H, 1)
-        )   # → (B, L, H, S)
-        cumulative_angles = torch.cumsum(angle_increments, dim=1)  # (B, L, H, S)
+            # ── Step 6: Apply RoPE rotation to B and C ───────────────────────────
+            # Cumulative angle = sum_{s≤t}(dt_s * angle_s), independently per head.
+            # DT is now (B, H, L) after the rearrange above; we need (B, L, H) for
+            # the angle computation.
+            DT_lh = rearrange(DT, "b h l -> b l h")
+            angle_increments = (
+                angle_raw.float().unsqueeze(2)   # (B, L, 1, S)
+                * DT_lh.float().unsqueeze(-1)    # (B, L, H, 1)
+            )   # → (B, L, H, S)
+            cumulative_angles = torch.cumsum(angle_increments, dim=1)  # (B, L, H, S)
 
-        # Expand to (B, L, R, H, S) for rotation applied to all ranks equally
-        angles_for_rot = cumulative_angles.unsqueeze(2).expand(
-            batch, L, self.mimo_rank, self.nheads, self.num_rope_angles
-        )  # (B, L, R, H, num_rope_angles)
+            angles_for_rot = cumulative_angles.unsqueeze(2).expand(
+                batch, L, self.mimo_rank, self.nheads, self.num_rope_angles
+            )  # (B, L, R, H, num_rope_angles)
 
-        # Rotate only the first `split_tensor_size` state dims of B and C.
-        # Remaining dims are left unrotated (real-valued).
-        B_rot = apply_rope(B_exp[..., :self.split_tensor_size], angles_for_rot)  # (..., split_tensor_size)
-        C_rot = apply_rope(C_exp[..., :self.split_tensor_size], angles_for_rot)
+            B_rot = apply_rope(B_exp[..., :self.split_tensor_size], angles_for_rot)
+            C_rot = apply_rope(C_exp[..., :self.split_tensor_size], angles_for_rot)
 
-        B_proj = torch.cat([B_rot, B_exp[..., self.split_tensor_size:]], dim=-1)  # (B, L, R, H, D)
-        C_proj = torch.cat([C_rot, C_exp[..., self.split_tensor_size:]], dim=-1)  # (B, L, R, H, D)
+            B_proj = torch.cat([B_rot, B_exp[..., self.split_tensor_size:]], dim=-1)
+            C_proj = torch.cat([C_rot, C_exp[..., self.split_tensor_size:]], dim=-1)
+
+            ncssd_angles = angle_raw.float().unsqueeze(2).expand(-1, -1, self.nheads, -1)
+        else:
+            # Vision path: pass raw normed B/C to NCSSD — it handles group→head
+            # expansion, bias addition, and spatial RoPE internally.
+            B_proj = B_normed
+            C_proj = C_normed
+            ncssd_angles = external_angles.to(torch.float32)
 
         # ── Step 7: SSM scan ─────────────────────────────────────────────────
-        # if self.is_mimo:
-        #     # MIMO: state is (B, H, D) — P dimension is projected away via mimo_x
-        #     y = mamba3_mimo_scan(
-        #         x=x,
-        #         B_proj=B_proj,   # (B, L, R, H, D)
-        #         C_proj=C_proj,
-        #         ADT=ADT,
-        #         DT=DT,
-        #         trap=trap,
-        #         D_skip=self.D,
-        #         mimo_x=self.mimo_x,
-        #         mimo_o=self.mimo_o,
-        #     )
-        #     # Gate output with z using simple SiLU (matches non-outproj_norm path)
-        #     y = y * F.silu(z.float())
-        # else:
-        #     # SISO: squeeze out the R=1 rank dimension for the scan
-        #     y = mamba3_siso_scan(
-        #         x=x,
-        #         B_proj=B_proj[:, :, 0],  # (B, L, H, D)
-        #         C_proj=C_proj[:, :, 0],
-        #         ADT=ADT,
-        #         DT=DT,
-        #         trap=trap,
-        #         D_skip=self.D,
-        #     )
-        #     # Gate output with z using simple SiLU
-        #     y = y * F.silu(z.float())
-        
-
         if self.is_mimo:
-            y = self.ncssd(x, z, B_proj, C_proj, ADT, trap, angle_raw, self.D,
+            y = self.ncssd(x, z, B_proj, C_proj, ADT, trap, ncssd_angles, self.D,
                             self.B_bias, self.C_bias,
                             self.mimo_x, self.mimo_z, self.mimo_o)
         else:
-            y = self.ncssd(x, z, B_proj, C_proj, ADT, trap, angle_raw, self.D,
+            y = self.ncssd(x, z, B_proj, C_proj, ADT, trap, ncssd_angles, self.D,
                             self.B_bias, self.C_bias)
 
         # ── Step 8: Output projection ─────────────────────────────────────────

@@ -459,17 +459,19 @@ class Mamba3VSSDNBackbone(nn.Module):
             nn.init.constant_(m.weight, 1.0)
 
     def _compute_hw_after_stem(self, H, W):
-        """VSSD stem does two stride-2 convs → H//4, W//4."""
-        H = int((H - 1) / 2) + 1
-        H = int((H - 1) / 2) + 1
-        W = int((W - 1) / 2) + 1
-        W = int((W - 1) / 2) + 1
+        """VSSD stem does two stride-2 convs (kernel=3, stride=2, padding=1).
+        Output size = (H + 2*pad - kernel) // stride + 1 = (H + 1) // 2.
+        Applied twice → factor 4 down. Uses integer division (traceable)."""
+        H = (H + 1) // 2
+        H = (H + 1) // 2
+        W = (W + 1) // 2
+        W = (W + 1) // 2
         return H, W
 
     def _compute_hw_after_downsample(self, H, W):
         """PatchMerging uses 3×3 conv stride 2 with padding 1 → H//2, W//2."""
-        H = int((H - 1) / 2) + 1
-        W = int((W - 1) / 2) + 1
+        H = (H + 1) // 2
+        W = (W + 1) // 2
         return H, W
 
     def forward(self, x: torch.Tensor):
