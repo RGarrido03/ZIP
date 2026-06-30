@@ -73,7 +73,7 @@ def get_dataloader(args: ArgumentParser, split: str = "train") -> Union[Tuple[Da
         dataset=args.dataset,
         split=split,
         transforms=transforms,
-        sigma=None,
+        sigma=args.sigma,
         return_filename=False,
         num_crops=args.num_crops if split == "train" else 1,
     )

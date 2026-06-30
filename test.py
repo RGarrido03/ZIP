@@ -81,7 +81,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args.dataset = standardize_dataset_name(args.dataset)
 
-    if args.dataset in ["sha", "shb", "qnrf", "nwpu"]:
+    if args.dataset in ["sha", "shb", "qnrf", "nwpu", "game"]:
         assert args.split == "val", f"Split {args.split} is not available for dataset {args.dataset}."
 
     # Sliding window prediction will be used if args.sliding_window is True, or when the image size is larger than args.max_input_size

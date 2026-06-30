@@ -1,0 +1,34 @@
+metadata:
+  name: game
+  description: Training configuration on the Game queue dataset.
+
+input_size: 448
+block_size: 32
+batch_size: 8
+num_crops: 1
+sigma: 8.0
+
+aug_min_scale: 0.75
+aug_max_scale: 2.0
+aug_brightness: 0.15
+aug_contrast: 0.15
+aug_saturation: 0.1
+aug_hue: 0.0
+aug_blur_prob: 0.0
+aug_saltiness: 0.001
+aug_spiciness: 0.001
+
+lr: 0.0001
+vpt_lr: 0.0001
+adapter_lr: 0.0001
+lora_lr: 0.0001
+backbone_lr: 0.0001
+
+weight_decay: 0.0001
+vpt_weight_decay: 0.0001
+adapter_weight_decay: 0.0001
+lora_weight_decay: 0.0001
+backbone_weight_decay: 0.0001
+
+eval_freq: 0.25
+eval_start: 100

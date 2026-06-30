@@ -27,3 +27,9 @@ test = ["pytest>=9"]
 
 [tool.uv.extra-build-dependencies]
 mamba-ssm = ["torch"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.17",
+    "ty>=0.0.49",
+]

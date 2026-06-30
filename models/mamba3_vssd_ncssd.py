@@ -185,12 +185,7 @@ class Mamba3Block(nn.Module):
             ngroups=ssm_ngroups,
             is_mimo=ssm_is_mimo,
             mimo_rank=ssm_mimo_rank,
-            is_outproj_norm=ssm_is_outproj_norm,
-            use_ncssd=True,
-            chunk_size=ssm_chunk_size,
-            dropout=0.0,
             rope_fraction=ssm_rope_fraction,
-            dt_limit=ssm_dt_limit,
         )
 
         self.norm1 = nn.LayerNorm(dim)

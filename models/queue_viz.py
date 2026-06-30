@@ -84,6 +84,87 @@ def _mask_contour(mask: np.ndarray) -> np.ndarray | None:
 # ---------------------------------------------------------------------------
 
 
+def render_queue_overlay_fast(
+    density_map: np.ndarray | "torch.Tensor",  # noqa: F821
+    mask: np.ndarray | None = None,
+    wait_time: float | None = None,
+    queue_count: float | None = None,
+    frame_idx: int = 0,
+    background: np.ndarray | None = None,
+) -> np.ndarray:
+    """Fast OpenCV-based overlay — no matplotlib.  ~100× faster per frame.
+
+    Args:
+        density_map: ``(H, W)`` density values.
+        mask: ``(H, W)`` bool array — detected queue region.
+        wait_time: current wait-time estimate (for text overlay).
+        queue_count: current queue count (for text overlay).
+        frame_idx: frame number (for text overlay).
+        background: ``(H, W, 3)`` uint8 image to blend under the heatmap.
+
+    Returns:
+        uint8 BGR numpy array (OpenCV format — ready for ``cv2.imshow`` / ``VideoWriter``).
+    """
+    import cv2
+
+    den = _ensure_numpy(density_map)
+
+    # Determine output resolution from background, fall back to density map size
+    if background is not None:
+        bg = np.asarray(background)
+        if bg.ndim == 3 and bg.shape[2] == 3:
+            out_h, out_w = bg.shape[:2]
+        else:
+            out_h, out_w = den.shape
+            bg = None
+    else:
+        out_h, out_w = den.shape
+        bg = None
+
+    # Upscale density map to output resolution
+    den_up = cv2.resize(den, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
+    vmax = float(max(den_up.max(), 1e-6))
+    den_norm = (den_up / vmax * 255).clip(0, 255).astype(np.uint8)
+    heatmap = cv2.applyColorMap(den_norm, cv2.COLORMAP_INFERNO)  # BGR
+
+    # --- Background blend ---
+    if bg is not None:
+        heatmap = cv2.addWeighted(bg, 0.3, heatmap, 0.7, 0)
+
+    # --- Mask overlay (green tint) ---
+    if mask is not None and mask.any():
+        # Upscale mask to output resolution
+        mask_up = cv2.resize(mask.astype(np.uint8), (out_w, out_h),
+                             interpolation=cv2.INTER_NEAREST).astype(bool)
+        green = np.zeros_like(heatmap)
+        green[:, :, 1] = 128  # green channel
+        mask_3c = np.stack([mask_up, mask_up, mask_up], axis=-1)
+        heatmap = np.where(mask_3c, cv2.addWeighted(heatmap, 0.65, green, 0.35, 0), heatmap)
+
+        # Draw mask contour
+        mask_u8 = mask_up.astype(np.uint8) * 255
+        contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(heatmap, contours, -1, (0, 255, 128), 2)
+
+    # --- Text overlay ---
+    lines = []
+    if frame_idx is not None:
+        lines.append(f"Frame {frame_idx}")
+    if queue_count is not None:
+        lines.append(f"Queue: {queue_count:.1f} people")
+    if wait_time is not None:
+        lines.append(f"Wait: {wait_time:.1f}s")
+
+    for i, line in enumerate(lines):
+        y = 25 + i * 22
+        cv2.putText(heatmap, line, (11, y + 1), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.55, (0, 0, 0), 2, cv2.LINE_AA)
+        cv2.putText(heatmap, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.55, (255, 255, 255), 1, cv2.LINE_AA)
+
+    return heatmap  # BGR
+
+
 def render_queue_overlay(
     density_map: np.ndarray | "torch.Tensor",  # noqa: F821
     mask: np.ndarray | None = None,
@@ -96,20 +177,9 @@ def render_queue_overlay(
     dpi: int = 80,
 ) -> np.ndarray:
     """Return an RGB frame (H, W, 3) uint8 with density heatmap, mask overlay,
-    and metrics text.
+    and metrics text.  Uses matplotlib — slower but higher quality.
 
-    Args:
-        density_map: ``(H, W)`` density values.
-        mask: ``(H, W)`` bool array — detected queue region.
-        wait_time: current wait-time estimate in seconds (for text overlay).
-        queue_count: current queue count (for text overlay).
-        frame_idx: frame number (for text overlay).
-        background: ``(H, W, 3)`` uint8 image to blend under the heatmap.
-        figsize: matplotlib figure size in inches.
-        dpi: output resolution.
-
-    Returns:
-        uint8 RGB numpy array.
+    Prefer ``render_queue_overlay_fast`` for real-time / video output.
     """
     den = _ensure_numpy(density_map)
     H, W = den.shape

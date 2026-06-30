@@ -21,7 +21,7 @@ available_datasets = [
     "shanghaitech_b", "shb",
     "shanghaitech", "sh",
     "ucf_qnrf", "qnrf", "ucf-qnrf",
-    "nwpu", "nwpu_crowd", "nwpu-crowd",
+    "nwpu", "nwpu_crowd", "nwpu-crowd", "game"
 ]
 
 mean = (0.48145466, 0.4578275, 0.40821073)
@@ -38,9 +38,11 @@ def standardize_dataset_name(dataset: str) -> str:
         return "sh"
     elif dataset.lower() in ["ucf_qnrf", "qnrf", "ucf-qnrf"]:
         return "qnrf"
-    else:
-        assert dataset.lower() in ["nwpu", "nwpu_crowd", "nwpu-crowd"], f"Dataset {dataset} is not available."
+    elif dataset.lower() in ["nwpu", "nwpu_crowd", "nwpu-crowd"]:
         return "nwpu"
+    else:
+        assert dataset.lower() == "game", f"Dataset {dataset} is not available."
+        return "game"
 
 
 class Crowd(Dataset):
@@ -80,7 +82,7 @@ class Crowd(Dataset):
         self.root = os.path.join(curr_dir, "..", "data", self.dataset)
 
     def __make_dataset__(self) -> None:
-        image_names = glob(os.path.join(self.root, self.split, "images", "*.jpg"))
+        image_names = glob(os.path.join(self.root, self.split, "images", "*.jpg")) + glob(os.path.join(self.root, self.split, "images", "*.png"))
 
         label_names = glob(os.path.join(self.root, self.split, "labels", "*.npy"))
         image_names = [os.path.basename(image_name) for image_name in image_names]
@@ -118,6 +120,12 @@ class Crowd(Dataset):
             else:
                 assert self.split == "val", f"Split {self.split} is not available for dataset {self.dataset}."
                 assert len(self.image_names) == len(self.label_names) == 334, f"UCF_QNRF val split should have 334 images, but found {len(self.image_names)}."
+        elif self.dataset == "game":
+            if self.split == "train":
+                assert len(self.image_names) == len(self.label_names) == 300, f"Game train split should have 300 images, but found {len(self.image_names)}."
+            else:
+                assert self.split == "val", f"Split {self.split} is not available for dataset {self.dataset}."
+                assert len(self.image_names) == len(self.label_names) == 182, f"Game val split should have 182 images, but found {len(self.image_names)}."
 
     def __len__(self) -> int:
         return len(self.image_names)

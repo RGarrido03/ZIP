@@ -42,7 +42,7 @@ parser = ArgumentParser(description="Train an EBC model.")
 
 # Parameters for model
 parser.add_argument("--model_name", type=str, default="mamba3_micro", help="The name of the model to use.")
-parser.add_argument("--block_size", type=int, default=16, choices=[7, 8, 14, 16, 28, 32], help="The block sizes for the model.")
+parser.add_argument("--block_size", type=int, default=None, choices=[7, 8, 14, 16, 28, 32], help="The block sizes for the model.")
 parser.add_argument("--clip_weight_name", type=str, default=None, help="The weight name for CLIP models.")
 parser.add_argument("--norm", type=str, default="none", choices=["none", "bn", "ln"], help="The normalization layer to use. 'none' means no normalization layer will be detected automatically, 'bn' means batch normalization, 'ln' means layer normalization.")
 parser.add_argument("--act", type=str, default="none", choices=["none", "relu", "gelu"], help="The activation function to use. 'none' means no activation function will be detected automatically, 'relu' means ReLU, 'gelu' means GELU.")
@@ -63,6 +63,7 @@ parser.add_argument("--aug_kernel_size", type=int, default=None, help="The kerne
 parser.add_argument("--aug_saltiness", type=float, default=None, help="The saltiness for pepper salt noise augmentation.")
 parser.add_argument("--aug_spiciness", type=float, default=None, help="The spiciness for pepper salt noise augmentation.")
 parser.add_argument("--aug_blur_prob", type=float, default=None, help="The probability for Gaussian blur augmentation.")
+parser.add_argument("--sigma", type=float, default=None, help="Sigma for Gaussian density map generation. None means no smoothing (dot map).")
 
 # Parameters for evaluation
 parser.add_argument("--sliding_window", action="store_true", help="Use sliding window strategy for evaluation.")
@@ -115,7 +116,7 @@ parser.add_argument("--T_max", type=int, default=20, help="The maximum number of
 parser.add_argument("--ckpt_dir_name", type=str, default=None, help="The name of the checkpoint folder.")
 parser.add_argument("--ckpt_backbone", type=str, default=None, help="The name of the checkpoint for the backbone (.pth).")
 parser.add_argument("--total_epochs", type=int, default=1300, help="Number of epochs to train.")
-parser.add_argument("--eval_start", type=int, default=0, help="Start to evaluate after this number of epochs.")
+parser.add_argument("--eval_start", type=int, default=None, help="Start to evaluate after this number of epochs.")
 parser.add_argument("--eval_freq", type=float, default=None, help="Evaluate every this number of epochs. If < 1, evaluate every this fraction of an epoch.")
 parser.add_argument("--save_freq", type=int, default=50, help="Save checkpoint every this number of epochs. Could help reduce I/O.")
 parser.add_argument("--save_best_k", type=int, default=5, help="Save the best k checkpoints.")

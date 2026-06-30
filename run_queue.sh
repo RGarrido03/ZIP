@@ -4,10 +4,12 @@
 #SBATCH --nodelist=xbox
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-task=1
-#SBATCH --cpus-per-task=4
-#SBATCH --job-name=zip
-#SBATCH --output=runs/zip_%j.out
-#SBATCH --error=runs/zip_%j.err
+#SBATCH --cpus-per-task=15
+#SBATCH --threads-per-core=2
+#SBATCH --job-name=run_queue
+#SBATCH --output=runs/run_queue_%j.out
+#SBATCH --error=runs/run_queue_%j.err
+#SBATCH --mem=60G
 
 # Removemos as exportações de MASTER_ADDR, MASTER_PORT e NCCL_SOCKET_IFNAME
 # pois não haverá comunicação distribuída.
@@ -24,9 +26,8 @@ export WANDB_API_KEY='wandb_v1_9e0i3YhnLyxoXQ7ymQVRjTVlVRS_bDoVOLCwwSGmHGlvv99ac
 export WANDB_PROJECT=zip-ebc
 
 # export CUDA_VISIBLE_DEVICES=0
-
-python trainer.py \
-    --model_name $ARCH --dataset sha --input_size 224 --block_size 16 --sliding_window --warmup_lr 1e-3 --total_epochs 50000 \
-    --batch_size 256 --num_workers 4 --wandb --eval_freq 25 --eval_start 0 \
-    --ckpt_backbone "/slurm_shared/home/andrepedroribeiro@av.it.pt/mamba3-caa/work_dirs/cls_vssd_nc_${ARCH_MIN}_hpo_ddp/last.pth"
-    # --ckpt_dir_name zip_mamba3_pico_16_1.0+1.0xzipnll+1.0msmae_adam_cos_restarts_ca122a26_new 2>&1
+uv run python run_queue_wait.py \
+    --video output_42_full.mp4 \
+    --model-info checkpoints/sha/zip_mamba3_micro_16_1.0+1.0xzipnll+1.0msmae_adam_cos_restarts_fece5697/ckpt.pth \
+    --model-name mamba3_micro --strategy morphology \
+    --output annotated_output_42.mp4 --progress-every 100 2>&1

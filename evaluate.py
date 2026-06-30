@@ -10,6 +10,7 @@ import numpy as np
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 import wandb
+import random
 
 
 _MEAN = np.array([0.48145466, 0.4578275, 0.40821073])
@@ -60,7 +61,7 @@ def evaluate(
     pred_counts, gt_counts = [], []
     data_iter = tqdm(data_loader) if (local_rank == 0 and progress_bar) else data_loader
 
-    for image, gt_points, _ in data_iter:
+    for image, gt_points, gt_density in data_iter:
         image = image.to(device)
         image_height, image_width = image.shape[-2:]
         gt_counts.extend([len(p) for p in gt_points])
@@ -113,7 +114,16 @@ def evaluate(
     if wandb_run is not None and local_rank == 0:
         model.train()  # temporarily switch to train mode to get intermediate outputs
         logged = 0
-        for image, gt_points, _ in data_loader:
+        num = random.random()
+        i = 0
+        for image, gt_points, gt_density in data_loader:
+            if i < 80:
+                i += 1
+                continue
+            num = random.random()
+            if num < 0.5:
+                continue
+            
             if logged >= num_log_samples:
                 break
             image = image.to(device)
@@ -138,6 +148,11 @@ def evaluate(
                 new_width = int(image_width * scale)
                 image = F.interpolate(image, size=(new_height, new_width), mode="bicubic", align_corners=False)
                 image_height, image_width = new_height, new_width
+            # Interpolate GT density to match image dimensions if resized
+            gt_density = gt_density.to(device)
+            if gt_density.shape[-2:] != (image_height, image_width):
+                gt_density = F.interpolate(gt_density, size=(image_height, image_width), mode="bilinear", align_corners=False)
+
 
             with torch.no_grad(), autocast(device_type="cuda", enabled=amp):
                 outputs = model(image)
@@ -171,6 +186,8 @@ def evaluate(
                 if lambda_map is not None:
                     lam_img = lambda_map[b].squeeze().cpu().numpy()
                     wandb_run.log({f"eval/lambda_{logged}": _density_to_image(lam_img, f"sample {logged} - Lambda", background=bg)})
+                gt_img = gt_density[b].squeeze().cpu().numpy()
+                wandb_run.log({f"eval/gt_density_{logged}": _density_to_image(gt_img, f"sample {logged} - GT Density", background=bg)})
                 logged += 1
 
         model.eval()  # restore eval mode

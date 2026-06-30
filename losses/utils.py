@@ -12,6 +12,7 @@ def _reshape_density(density: Tensor, block_size: int) -> Tensor:
 
 
 def _bin_count(density_map: Tensor, bins: List[Tuple[int, int]]) -> Tensor:
+    density_map = density_map.round()
     class_map = torch.zeros_like(density_map, dtype=torch.long)
     for idx, (low, high) in enumerate(bins):
         mask = (density_map >= low) & (density_map <= high)
