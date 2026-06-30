@@ -146,14 +146,16 @@ class NCSSD_Mamba3(nn.Module):
         batch, seqlen, nheads, headdim = x.shape
 
         # --- B, C: (B, L, 1, G, N) → (B, L, G, N) → expand G→H ---
-        B = B.squeeze(2)  # (B, L, G, N)
-        C = C.squeeze(2)
+        # Use explicit indexing ([:,:,0,:,:]) instead of squeeze(2) because
+        # squeeze produces ONNX If nodes when the dimension size is dynamic.
+        B = B[:, :, 0, :, :]  # (B, L, G, N) — select R=0 (R=1 in SISO)
+        C = C[:, :, 0, :, :]
         B = B.repeat_interleave(self.ngroups_ratio, dim=2)  # (B, L, H, N)
         C = C.repeat_interleave(self.ngroups_ratio, dim=2)
 
         # Add per-head bias
-        B_bias_s = B_bias.squeeze(1)  # (H, N)
-        C_bias_s = C_bias.squeeze(1)
+        B_bias_s = B_bias[:, 0, :]  # (H, N) — select R=0
+        C_bias_s = C_bias[:, 0, :]
         B = B + B_bias_s.reshape(1, 1, nheads, -1)
         C = C + C_bias_s.reshape(1, 1, nheads, -1)
 
@@ -179,9 +181,12 @@ class NCSSD_Mamba3(nn.Module):
         # Scale by 1/√(d_state * L) to keep magnitudes stable as seqlen varies:
         #   K^T@V sums over L positions → split 1/√L across K and V
         #   Q@KV sums over N positions → 1/√N from d_state
+        # Uses matmul instead of einsum for better ONNX edge-runtime compatibility.
         scale = (self.d_state * seqlen) ** -0.5
-        KV = torch.einsum("bhln,bhlp->bhnp", K, V_scaled) * scale  # (B, H, N, P)
-        Out = torch.einsum("bhln,bhnp->bhlp", Q_scaled, KV)  # (B, H, L, P)
+        # K: (B, H, L, N), V_scaled: (B, H, L, P) → KV: (B, H, N, P)
+        KV = torch.matmul(K.transpose(-1, -2), V_scaled) * scale
+        # Q_scaled: (B, H, L, N), KV: (B, H, N, P) → Out: (B, H, L, P)
+        Out = torch.matmul(Q_scaled, KV)
 
         # --- Skip connection: D * V (original V, ungated) ---
         Out = Out + D.view(1, nheads, 1, 1) * V
